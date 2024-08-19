@@ -36,10 +36,12 @@ class ActivationsAndGradients:
 
         output.register_hook(_store_grad)
 
-    def __call__(self, x):
+    def __call__(self, x, deterministic=False):
         self.gradients = []
         self.activations = []
-        return self.model(x)
+        return self.model(x, deterministic)
+    # CHANGED: added 'deterministic' so that self.outputs = outputs = self.activations_and_grads(input_tensor,
+    # deterministic=True) in base_cam.py will always be the same as the ClassifierOutputTarget.category
 
     def release(self):
         for handle in self.handles:

@@ -80,14 +80,16 @@ class BaseCAM:
         return cam
 
     def forward(
-        self, input_tensor: torch.Tensor, targets: List[torch.nn.Module], eigen_smooth: bool = False
+        self, input_tensor: torch.Tensor, targets: List[torch.nn.Module], eigen_smooth: bool = False, deterministic:
+            bool = False
     ) -> np.ndarray:
         input_tensor = input_tensor.to(self.device)
 
         if self.compute_input_gradient:
             input_tensor = torch.autograd.Variable(input_tensor, requires_grad=True)
 
-        self.outputs = outputs = self.activations_and_grads(input_tensor)
+        self.outputs = outputs = self.activations_and_grads(input_tensor, deterministic)
+        # CHANGED: added deterministic flag to the forward method
 
         if targets is None:
             target_categories = np.argmax(outputs.cpu().data.numpy(), axis=-1)
@@ -95,8 +97,13 @@ class BaseCAM:
 
         if self.uses_gradients:
             self.model.zero_grad()
-            loss = sum([target(output) for target, output in zip(targets, outputs)])
-            loss.backward(retain_graph=True)
+            # loss = sum([target(output) for target, output in zip(targets, outputs)])
+            # CHANGED: manually compute the loss using the logits and the gradient as a one-hot vector for the chosen
+            # action.
+            logits = self.model.action_dist.distribution.logits
+            max_logit_index = torch.argmax(logits, dim=1)
+            one_hot_grads = torch.nn.functional.one_hot(max_logit_index, num_classes=logits.shape[1])
+            logits.backward(gradient=one_hot_grads, retain_graph=True)
 
         # In most of the saliency attribution papers, the saliency is
         # computed with a single target layer.
@@ -178,12 +185,14 @@ class BaseCAM:
         targets: List[torch.nn.Module] = None,
         aug_smooth: bool = False,
         eigen_smooth: bool = False,
+        deterministic: bool = False
     ) -> np.ndarray:
         # Smooth the CAM result with test time augmentation
         if aug_smooth is True:
-            return self.forward_augmentation_smoothing(input_tensor, targets, eigen_smooth)
+            # CHANGED: added derministic flag in both return statements and in arguments of __call__ method
+            return self.forward_augmentation_smoothing(input_tensor, targets, eigen_smooth, deterministic)
 
-        return self.forward(input_tensor, targets, eigen_smooth)
+        return self.forward(input_tensor, targets, eigen_smooth, deterministic)
 
     def __del__(self):
         self.activations_and_grads.release()
